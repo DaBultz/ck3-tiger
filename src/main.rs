@@ -1,13 +1,13 @@
 use anyhow::{bail, Result};
 use clap::Parser;
 use home::home_dir;
-use std::fs::read_to_string;
+use winreg::enums::KEY_READ;
 use std::path::PathBuf;
 use std::fs;
 
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 use winreg::enums::HKEY_LOCAL_MACHINE;
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 use winreg::RegKey;
 
 use keyvalues_parser::{Vdf};
@@ -16,16 +16,14 @@ use ck3_tiger::errors::{minimum_level, set_mod_root, set_vanilla_root, show_vani
 use ck3_tiger::everything::Everything;
 use ck3_tiger::modfile::ModFile;
 
-
-
 /// Steam's code for Crusader Kings 3
 const CK3_APP_ID: &str = "1158310";
 
 // How to find steamapps dir on different systems
 const STEAM_LINUX: &str = ".local/share/Steam/steamapps";
 const STEAM_MAC: &str = "Library/Application Support/Steam/steamapps";
-#[cfg(windows)]
-const STEAM_WINDOWS_KEY: &str = r"SOFTWARE\Wow6432Node\Valve\Steam";
+// #[cfg(target_os = "windows")]
+// const STEAM_WINDOWS_KEY: &str = r"SOFTWARE\Wow6432Node\Valve\Steam";
 
 /// CK3 directory under steam library dir
 const CK3_GAME_DIR: &str = "steamapps/common/Crusader Kings III/game";
@@ -33,7 +31,7 @@ const CK3_GAME_DIR: &str = "steamapps/common/Crusader Kings III/game";
 /// A file that should be present if this is a CK3 game directory
 const CK3_SIGNATURE_FILE: &str = "events/witch_events.txt";
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 struct Cli {
     /// Path to .mod file of mod to check.
     modpath: PathBuf,
@@ -62,13 +60,21 @@ fn find_steamapps_directory() -> Option<PathBuf> {
             return Some(on_mac);
         }
     }
-    #[cfg(windows)]
-    {
-        let key = RegKey::predef(HKEY_LOCAL_MACHINE)
-            .open_subkey(STEAM_WINDOWS_KEY)
-            .ok()?;
-        let on_windows: String = key.get_value("InstallPath").ok()?;
-        let on_windows = PathBuf::from(on_windows).join("steamapps");
+    
+
+    #[cfg(target_os = "windows")]
+    {          
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        let steam_regkey = hklm
+            .open_subkey_with_flags("SOFTWARE\\Wow6432Node\\Valve\\Steam", KEY_READ)
+            .expect("Failed to open steam registry key");
+    
+        let install_path: String = steam_regkey
+            .get_value("InstallPath")
+            .expect("Failed to get steam install path");
+           
+        let on_windows = PathBuf::from(install_path).join("steamapps");
+            
         if on_windows.is_dir() {
             return Some(on_windows);
         }
@@ -109,32 +115,32 @@ pub fn get_game_path(app_id: &str, game: &str) -> Option<PathBuf> {
     Some(PathBuf::from(path).join("steamapps\\common").join(game))
 }
 
-fn find_ck3_directory() -> Option<PathBuf> {
-    let steamapps_dir = find_steamapps_directory()?;
+// fn find_ck3_directory() -> Option<PathBuf> {
+//     let steamapps_dir = find_steamapps_directory()?;
 
-    let vdf = steamapps_dir.join("libraryfolders.vdf");
-    // Rudimentary libraryfolders.vdf parsing.
-    // We're looking for a subsection with a "path" setting that has
-    // our app (CK3) listed in its "apps" list.
-    let mut found_path = None;
-    for line in read_to_string(vdf).ok()?.lines() {
-        let fields = line.split_ascii_whitespace().collect::<Vec<&str>>();
-        if fields.len() == 2 {
-            let key = fields[0].trim_matches('"');
-            let value = fields[1].trim_matches('"');
-            if key == "path" {
-                found_path = Some(PathBuf::from(value))
-            } else if key == CK3_APP_ID && found_path.is_some() {
-                let ck3_path = found_path.unwrap().join(CK3_GAME_DIR);
-                if ck3_path.is_dir() {
-                    return Some(ck3_path);
-                }
-                return None;
-            }
-        }
-    }
-    None
-}
+//     let vdf = steamapps_dir.join("libraryfolders.vdf");
+//     // Rudimentary libraryfolders.vdf parsing.
+//     // We're looking for a subsection with a "path" setting that has
+//     // our app (CK3) listed in its "apps" list.
+//     let mut found_path = None;
+//     for line in read_to_string(vdf).ok()?.lines() {
+//         let fields = line.split_ascii_whitespace().collect::<Vec<&str>>();
+//         if fields.len() == 2 {
+//             let key = fields[0].trim_matches('"');
+//             let value = fields[1].trim_matches('"');
+//             if key == "path" {
+//                 found_path = Some(PathBuf::from(value))
+//             } else if key == CK3_APP_ID && found_path.is_some() {
+//                 let ck3_path = found_path.unwrap().join(CK3_GAME_DIR);
+//                 if ck3_path.is_dir() {
+//                     return Some(ck3_path);
+//                 }
+//                 return None;
+//             }
+//         }
+//     }
+//     None
+// }
 
 fn main() -> Result<()> {
     let mut args = Cli::parse();
@@ -142,7 +148,7 @@ fn main() -> Result<()> {
     eprintln!("This validator was made for Crusader Kings version 1.7.0.");
     eprintln!("If you are using a newer version of Crusader Kings, it may be inaccurate.");
     eprintln!("!! Currently it's inaccurate anyway because it's in alpha state.");
-
+    
     if args.ck3.is_none() {
         args.ck3 = get_game_path(CK3_APP_ID, "Crusader Kings III");
     }
