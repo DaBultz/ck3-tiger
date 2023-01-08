@@ -19,6 +19,7 @@ strum_macros = "0.24.3"
 thiserror = "1"
 unicode-width = "0.1.9"
 walkdir = "2"
+keyvalues-parser = "0.1.0"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.10"

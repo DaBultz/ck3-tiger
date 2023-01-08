@@ -3,15 +3,20 @@ use clap::Parser;
 use home::home_dir;
 use std::fs::read_to_string;
 use std::path::PathBuf;
+use std::fs;
 
 #[cfg(windows)]
 use winreg::enums::HKEY_LOCAL_MACHINE;
 #[cfg(windows)]
 use winreg::RegKey;
 
+use keyvalues_parser::{Vdf};
+
 use ck3_tiger::errors::{minimum_level, set_mod_root, set_vanilla_root, show_vanilla, ErrorLevel};
 use ck3_tiger::everything::Everything;
 use ck3_tiger::modfile::ModFile;
+
+
 
 /// Steam's code for Crusader Kings 3
 const CK3_APP_ID: &str = "1158310";
@@ -71,6 +76,39 @@ fn find_steamapps_directory() -> Option<PathBuf> {
     None
 }
 
+pub fn get_game_path(app_id: &str, game: &str) -> Option<PathBuf> {
+    let library_path = find_steamapps_directory()
+        .expect("Failed to find steamapps")
+        .join("libraryfolders.vdf");
+    let library_file = fs::read_to_string(library_path).expect("Failed to read library file");
+    let vdf = Vdf::parse(&library_file).expect("Failed to parse library file");
+    // let obj = vdf.value.get_obj().unwrap().iter();
+
+    let path: String = vdf
+        .value
+        .get_obj()
+        .unwrap()
+        .iter()
+        // Filter for valid libraries
+        .filter(|(key, values)| key.parse::<u32>().is_ok() && values.len() == 1)
+        // Get the library key-value pairs
+        .map(|(_, values)| values.get(0).unwrap().get_obj().unwrap())
+        // Convert to a tuple of (library path, library apps)
+        .map(|values| {
+            let path = values.get("path").unwrap().get(0).unwrap().get_str().unwrap();
+            let apps = values.get("apps").unwrap().get(0).unwrap().get_obj().unwrap();
+
+            (path, apps)
+        })
+        // Get the path containing the app
+        .filter(|(_, apps)| apps.contains_key(app_id))
+        // Get the library path
+        .map(|(path, _)| path)
+        .collect();
+
+    Some(PathBuf::from(path).join("steamapps\\common").join(game))
+}
+
 fn find_ck3_directory() -> Option<PathBuf> {
     let steamapps_dir = find_steamapps_directory()?;
 
@@ -106,7 +144,7 @@ fn main() -> Result<()> {
     eprintln!("!! Currently it's inaccurate anyway because it's in alpha state.");
 
     if args.ck3.is_none() {
-        args.ck3 = find_ck3_directory();
+        args.ck3 = get_game_path(CK3_APP_ID, "Crusader Kings III");
     }
     if let Some(ref mut ck3) = args.ck3 {
         eprintln!("Using CK3 game directory: {}", ck3.display());
